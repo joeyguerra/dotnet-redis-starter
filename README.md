@@ -10,12 +10,12 @@ The volume path has to be shared in Docker->Preferences->File Sharing.
 
 ```bash
 # MacOS
-docker create -v $(pwd)/myredis:/usr/local/etc/redis --name myredis -p 6379:6379 redis redis-server /usr/local/etc/redis
+docker create -v $(pwd)/redis-config:/usr/local/etc/redis --name myredis -p 6379:6379 redis redis-server /usr/local/etc/redis
 ```
 
 ```powershell
 # Windows
-docker create -v ${pwd}/myredis:/usr/local/etc/redis --name myredis -p 6379:6379 redis redis-server /usr/local/etc/redis
+docker create -v ${pwd}/redis-config:/usr/local/etc/redis --name myredis -p 6379:6379 redis redis-server /usr/local/etc/redis
 ```
 
 
