@@ -17,3 +17,11 @@ Start the container.
 ```bash
 docker start myredis
 ```
+
+# Run App
+
+Set a password in [redis.conf](redis-config/redis-sample.conf). This folder will get bind mounted to the Redis container per `docker create` command above.
+
+```bash
+dotnet run RedisPassword=<password that you shouldve set in redis.conf>
+```
