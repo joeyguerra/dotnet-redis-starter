@@ -289,4 +289,4 @@ __pycache__/
 *.xsd.cs
 
 
-myredis/redis.conf
+redis-config/redis.conf
