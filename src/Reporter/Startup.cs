@@ -24,9 +24,10 @@ namespace Reporter
         {
             var connectionString = $"{Configuration["RedisHost"]},password={Configuration["RedisPassword"]}";
             var connectionMultiplexer = ConnectionMultiplexer.Connect(connectionString);
-            var redisPersistence = new RedisPersistence(connectionMultiplexer);
+            var redisPersistence = new RedisPersistence(connectionMultiplexer, "0-0", (didSucceed, ex) => {
+                Console.WriteLine($"Was it successful {didSucceed} {ex.Message}");
+            });
             services.AddSingleton<RedisPersistence>(redisPersistence);
-
             services.AddControllers();
             services.AddSwaggerGen(c =>
             {

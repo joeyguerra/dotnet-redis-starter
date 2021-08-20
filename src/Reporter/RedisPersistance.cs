@@ -1,87 +1,83 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 using StackExchange.Redis;
 
-public class RedisPersistence
-{   
-    ConnectionMultiplexer redis;
-    IDatabase db;
-    public const string WORKLOGS_PENDING_STREAM = "worklogs:pending";
-    public const string CONSUMER_GROUP_MANAGERS = "worklogs:pending:users:managers";
-    public const string WORKLOGS_APPROVALS_STREAM = "worklogs:approvals";
-    public const string CONSUMER_GROUP_APPROVERS = "worklogs:approvals:users:approvers";
-    public const string WORKLOGS_BILLING_STREAM = "worklogs:billing";
-    public const string CONSUMER_GROUP_ACCOUNTING = "worklogs:billing:users:accounting";
-    const string KEY_ASSIGNMENT_ID = "AssignmentId";
-
-    public RedisPersistence(ConnectionMultiplexer connectionMultiplexer)
+namespace Reporter
+{
+    public class RedisPersistence
     {
-        redis = connectionMultiplexer;
-        db = redis.GetDatabase();
+        ConnectionMultiplexer _connectionMultiplexer;
+        IDatabase _db;
+        public const string CONSUMER_GROUP_KEY_INCOMING = "incoming";
+        public const string CONSUMER_GROUP_NAME_DOCS = "incoming:docs";
 
-        try
+        public RedisPersistence(ConnectionMultiplexer connectionMultiplexer, string initialPosition, Action<bool, Exception> done)
         {
-            var success = db.StreamCreateConsumerGroup(WORKLOGS_APPROVALS_STREAM, CONSUMER_GROUP_APPROVERS, "0-0");
-            Console.WriteLine($"Created CG {CONSUMER_GROUP_APPROVERS} for stream {WORKLOGS_APPROVALS_STREAM}. Status: {success}");
+            _connectionMultiplexer = connectionMultiplexer;
+            _db = _connectionMultiplexer.GetDatabase();
+            bool didSucceed = false;
+            Exception e = null;
+            try{
+                didSucceed = this.StreamCreateConsumerGroup(CONSUMER_GROUP_KEY_INCOMING, CONSUMER_GROUP_NAME_DOCS, initialPosition);
+            }catch(RedisServerException ex){
+                didSucceed = false;
+                e = ex;
+            }
+            done(didSucceed, e);
         }
-        catch(RedisException exc)
+        public bool StreamCreateConsumerGroup(RedisKey key, RedisValue groupName, RedisValue? position = null, bool createStream = true, CommandFlags flags = CommandFlags.None)
         {
-            Console.WriteLine(exc.Message);
+            return _db.StreamCreateConsumerGroup(key, groupName, position, createStream, flags);
         }
 
-        try
+        public async Task<RedisValue> StreamAddAsync(RedisKey key, RedisValue streamField, RedisValue streamValue, RedisValue? messageId = null, int? maxLength = null, bool useApproximateMaxLength = false, CommandFlags flags = CommandFlags.None)
         {
-            var success = db.StreamCreateConsumerGroup(WORKLOGS_BILLING_STREAM, CONSUMER_GROUP_ACCOUNTING, "0-0");
-            Console.WriteLine($"Created CG {CONSUMER_GROUP_ACCOUNTING} for stream {WORKLOGS_BILLING_STREAM}. Status {success}");
+            return await _db.StreamAddAsync(key, streamField, streamValue, messageId, maxLength, useApproximateMaxLength, flags);
         }
-        catch(RedisException exc)
+
+        public async Task<StreamEntry[]> StreamReadAsync(RedisKey key, RedisValue position, int? count = null, CommandFlags flags = CommandFlags.None)
         {
-            Console.WriteLine(exc.Message);
+            return await _db.StreamReadAsync(key, position, count, flags);
         }
-    }
+        public async Task<long> StreamAcknowledgeAsync(RedisKey key, RedisValue groupName, RedisValue messageId, CommandFlags flags = CommandFlags.None){
+            return await _db.StreamAcknowledgeAsync(key, groupName, messageId, flags);
+        }
 
-    public async Task<RedisValue> AddMessage(string stream, string key, RedisValue value)
-    {
-        Console.WriteLine($"Redis::Adding {key} {value} to stream {stream}");
-        var messageId = await db.StreamAddAsync(stream, key, value);
-        return messageId;
-    }
+        public async Task<RedisValue> AddMessage(string stream, string key, RedisValue value)
+        {
+            var messageId = await _db.StreamAddAsync(stream, key, value);
+            return messageId;
+        }
 
-    public async Task<StreamEntry[]> ReadMessages(string stream, string consumerGroup)
-    {
-        var pendingMessages = await db.StreamReadGroupAsync(stream, consumerGroup, $"{consumerGroup}:consumer_1", StreamPosition.Beginning);
-        var newMessages = await db.StreamReadGroupAsync(stream, consumerGroup, $"{consumerGroup}:consumer_1", StreamPosition.NewMessages);
-        var messages = pendingMessages.Concat(newMessages).ToArray();
-        Console.WriteLine($"Read {messages.Count()} messages from stream {stream} group {consumerGroup}");
-        return messages;
-    }
+        public async Task<StreamEntry[]> ReadAllMessages(string stream, string consumerGroup)
+        {
+            var pendingMessages = await _db.StreamReadGroupAsync(stream, consumerGroup, $"{consumerGroup}:consumer_1", StreamPosition.Beginning);
+            var newMessages = await _db.StreamReadGroupAsync(stream, consumerGroup, $"{consumerGroup}:consumer_1", StreamPosition.NewMessages);
+            var messages = pendingMessages.Concat(newMessages).ToArray();
+            return messages;
+        }
 
-    public async Task<StreamEntry[]> ReadStream(string stream)
-    {
-        var messages = await db.StreamReadAsync(stream, StreamPosition.Beginning);
-        return messages;
-    }
+        public async Task<StreamEntry[]> ReadStreamFromBeginning(string stream)
+        {
+            var messages = await _db.StreamReadAsync(stream, StreamPosition.Beginning);
+            return messages;
+        }
 
-    public async Task<string> GetMessageId(string stream, string assignmentId)
-    {
-        var messages = await ReadStream(stream);
-        var message = messages.LastOrDefault(x => x.Values.First(y => y.Name == KEY_ASSIGNMENT_ID).Value == assignmentId);
-        return message.Id;
-    }
+        // Example: handler = x => x.Values.First(y => y.Name == "DocID").Value == docI
+        public async Task<string> GetMessageId(string stream, Func<StreamEntry, bool> handler)
+        {
+            var messages = await ReadStreamFromBeginning(stream);
+            var message = messages.LastOrDefault(handler);
+            return message.Id;
+        }
 
-    public async Task<string> GetPendingMessageId(string stream, string consumerGroup, string assignmentId)
-    {
-        var messages = await ReadMessages(stream, consumerGroup);
-        var message = messages.FirstOrDefault(x => x.Values.First(y => y.Name == KEY_ASSIGNMENT_ID).Value == assignmentId);
-        return message.Id;
-    }
-
-    public async Task<long> AcknowledgeMessage(string stream, string consumerGroup, RedisValue messageId)
-    {
-        var result = await db.StreamAcknowledgeAsync(stream, consumerGroup, messageId);
-        return result;
+        // Example: handler = x => x.Values.First(y => y.Name == "DocID").Value == docId
+        public async Task<string> GetPendingMessageId(string stream, string consumerGroup, Func<StreamEntry, bool> handler)
+        {
+            var messages = await ReadAllMessages(stream, consumerGroup);
+            var message = messages.FirstOrDefault(handler);
+            return message.Id;
+        }
     }
 }
