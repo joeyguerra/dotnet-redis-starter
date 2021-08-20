@@ -1,27 +1,30 @@
 using System;
 using Xunit;
 
-namespace DotnetRedisStarter.Tests
+namespace DotnetRedisStarter.Tests.Integration
 {
     [Collection("Main Collection")]
-    public class UnitTest1
+    public class RedisPersistanceTest
     {
         private readonly MainFixture _fixture;
 
-        public UnitTest1(MainFixture fixture){
+        public RedisPersistanceTest(MainFixture fixture){
             _fixture = fixture;
         }
         
         [Fact]
-        public async void Test1()
+        public async void AddReadAndAcknowledgeMessages()
         {
-            var messageId = await _fixture.RedisPersistence.AddMessage("test", "test:docs", "joey");
+            var messageId = await _fixture.RedisPersistence.AddMessage("test", "Name", "Joey Guerra");
+            await _fixture.RedisPersistence.AddMessage("test", "Name", "John Smith");
             var entries = await _fixture.RedisPersistence.ReadAllMessages("test", "test:docs");
             foreach(var e in entries){
+                await _fixture.RedisPersistence.StreamAcknowledgeAsync("test", "test:docs", e.Id);
                 foreach(var kv in e.Values){
                     Console.WriteLine($"{e.Id}: {kv.Name} = {kv.Value}");
                 }
             }
+
             Assert.True(messageId.HasValue);
             Assert.True(entries.Length > 0);
 
