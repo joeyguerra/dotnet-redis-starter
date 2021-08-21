@@ -9,8 +9,8 @@ namespace Reporter
     {
         ConnectionMultiplexer _connectionMultiplexer;
         IDatabase _db;
-        public const string CONSUMER_GROUP_KEY_INCOMING = "incoming";
-        public const string CONSUMER_GROUP_NAME_DOCS = "incoming:docs";
+        public const string STREAM_KEY = "incoming";
+        public const string GROUP_NAME = "incoming:docs";
 
         public RedisPersistence(ConnectionMultiplexer connectionMultiplexer, string initialPosition, Action<bool, Exception> done)
         {
@@ -19,7 +19,7 @@ namespace Reporter
             bool didSucceed = false;
             Exception e = null;
             try{
-                didSucceed = this.StreamCreateConsumerGroup(CONSUMER_GROUP_KEY_INCOMING, CONSUMER_GROUP_NAME_DOCS, initialPosition);
+                didSucceed = this.StreamCreateConsumerGroup(STREAM_KEY, GROUP_NAME, initialPosition);
             }catch(RedisServerException ex){
                 didSucceed = false;
                 e = ex;
@@ -44,13 +44,13 @@ namespace Reporter
             return await _db.StreamAcknowledgeAsync(key, groupName, messageId, flags);
         }
 
-        public async Task<RedisValue> AddMessage(string stream, string key, RedisValue value)
+        public async Task<RedisValue> AddMessage(RedisKey key, RedisValue field, RedisValue value)
         {
-            var messageId = await _db.StreamAddAsync(stream, key, value);
+            var messageId = await _db.StreamAddAsync(key, field, value);
             return messageId;
         }
 
-        public async Task<StreamEntry[]> ReadAllMessages(string stream, string consumerGroup)
+        public async Task<StreamEntry[]> ReadAllMessages(RedisKey stream, RedisValue consumerGroup)
         {
             var pendingMessages = await _db.StreamReadGroupAsync(stream, consumerGroup, $"{consumerGroup}:consumer_1", StreamPosition.Beginning);
             var newMessages = await _db.StreamReadGroupAsync(stream, consumerGroup, $"{consumerGroup}:consumer_1", StreamPosition.NewMessages);

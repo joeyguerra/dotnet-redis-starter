@@ -25,6 +25,27 @@ Start the container.
 docker start myredis
 ```
 
+# Run Tests
+
+```bash
+cd DotnetRedisStarter.Tests
+RedisPassword=<password that you shouldve set in redis.conf> dotnet test
+```
+
+Continously run the tests.
+
+```bash
+cd DotnetRedisStarter.Tests
+RedisPassword=<password that you shouldve set in redis.conf> dotnet watch test
+```
+
+## Windows
+
+```powershell
+$env:RedisPassword=<password that you shouldve set in redis.conf>
+dotnet test
+```
+
 # Run App
 
 Set a password in [redis.conf](https://github.com/joeyguerra/dotnet-redis-starter/blob/cab9806b419b9305c106e90017176c1f79309d6e/redis-config/redis-sample.conf#L790). This folder will get bind mounted to the Redis container per `docker create` command above.
