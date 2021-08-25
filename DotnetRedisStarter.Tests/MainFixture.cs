@@ -12,7 +12,7 @@ namespace DotnetRedisStarter.Tests
     public class MainFixture : IDisposable
     {
         public AppSettings AppSettings { get; }
-        public RedisPersistence RedisPersistence {get;}
+        public RedisDecorator RedisPersistence {get;}
         private readonly IServiceCollection _services;
         private readonly IServiceProvider _provider;
 
@@ -31,10 +31,10 @@ namespace DotnetRedisStarter.Tests
             AppSettings = _provider.GetService<AppSettings>();
             var connectionString = $"{AppSettings.RedisHost},password={AppSettings.RedisPassword}";
             var connectionMultiplexer = ConnectionMultiplexer.Connect(connectionString);
-            RedisPersistence = new RedisPersistence(connectionMultiplexer, "0-0", (didSucceed, ex) => {
+            RedisPersistence = new RedisDecorator(connectionMultiplexer, "0-0", (didSucceed, ex) => {
                 Console.WriteLine($"Was it successful {didSucceed} {ex.Message}");
             });
-            _services.AddSingleton<RedisPersistence>(RedisPersistence);
+            _services.AddSingleton<RedisDecorator>(RedisPersistence);
 
             try{
                 RedisPersistence.StreamCreateConsumerGroup("test", "test:docs", "0-0");

@@ -1,18 +1,20 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using StackExchange.Redis;
+using System.ComponentModel;
 
 namespace Reporter
 {
-    public class RedisPersistence
+    public class RedisDecorator
     {
         ConnectionMultiplexer _connectionMultiplexer;
         IDatabase _db;
         public const string STREAM_KEY = "incoming";
         public const string GROUP_NAME = "incoming:docs";
 
-        public RedisPersistence(ConnectionMultiplexer connectionMultiplexer, string initialPosition, Action<bool, Exception> done)
+        public RedisDecorator(ConnectionMultiplexer connectionMultiplexer, string initialPosition, Action<bool, Exception> done)
         {
             _connectionMultiplexer = connectionMultiplexer;
             _db = _connectionMultiplexer.GetDatabase();
@@ -31,9 +33,42 @@ namespace Reporter
             return _db.StreamCreateConsumerGroup(key, groupName, position, createStream, flags);
         }
 
-        public async Task<RedisValue> StreamAddAsync(RedisKey key, RedisValue streamField, RedisValue streamValue, RedisValue? messageId = null, int? maxLength = null, bool useApproximateMaxLength = false, CommandFlags flags = CommandFlags.None)
+        public async Task<string> AppendMessage(Message message)
         {
-            return await _db.StreamAddAsync(key, streamField, streamValue, messageId, maxLength, useApproximateMaxLength, flags);
+            var entries = message.GetType().GetProperties().Select(prop => new NameValueEntry(prop.Name, prop.GetValue(message).ToString())).ToArray();
+            var messageId = await _db.StreamAddAsync(new RedisKey(STREAM_KEY), entries, null, null, false, CommandFlags.None);
+            return messageId.HasValue ? messageId.ToString() : null;
+        }
+
+        public async Task<List<Message>> ReadNewMessages(){
+            var entries = await _db.StreamReadGroupAsync(STREAM_KEY, GROUP_NAME, $"{GROUP_NAME}_1", StreamPosition.NewMessages);
+            var header = entries?[0].Id;
+            var messages = new List<Message>();
+            foreach(var entry in entries){
+                if(entry.Id == header){
+                    var m = new Message();
+                    var type = m.GetType();
+                    foreach(var e in entry.Values){
+                        if(e.Value.HasValue){
+                            var property = type.GetProperty(e.Name);
+                            var converter = TypeDescriptor.GetConverter(e.Value);
+                            if(property.PropertyType.Name == "Int32"){
+                                property?.SetValue(m, int.Parse(e.Value.ToString()));
+                            } else {
+                                property?.SetValue(m, e.Value.ToString());
+                            }
+                        }
+                    }
+                    messages.Add(m);
+                }
+                header = entry.Id;
+            }
+            return messages;
+        }
+        public async Task<RedisValue> StreamAddAsync(string key, KeyValuePair<string, string>[] entries, RedisValue? messageId = null, int? maxLength = null, bool useApproximateMaxLength = false, CommandFlags flags = CommandFlags.None)
+        {
+            var redisEntries = entries.Select(kv => new NameValueEntry(kv.Key, kv.Value)).ToArray<NameValueEntry>();
+            return await _db.StreamAddAsync(new RedisKey(key), redisEntries, messageId, maxLength, useApproximateMaxLength, flags);
         }
 
         public async Task<StreamEntry[]> StreamReadAsync(RedisKey key, RedisValue position, int? count = null, CommandFlags flags = CommandFlags.None)
@@ -43,14 +78,11 @@ namespace Reporter
         public async Task<long> StreamAcknowledgeAsync(RedisKey key, RedisValue groupName, RedisValue messageId, CommandFlags flags = CommandFlags.None){
             return await _db.StreamAcknowledgeAsync(key, groupName, messageId, flags);
         }
-
-        public async Task<RedisValue> AddMessage(RedisKey key, RedisValue field, RedisValue value)
-        {
-            var messageId = await _db.StreamAddAsync(key, field, value);
-            return messageId;
+        public async Task<KeyValuePair<string, string>[]> StreamReadGroupAsync(string stream, string group, string consumerName){
+            var messages = await _db.StreamReadGroupAsync(stream, group, consumerName, StreamPosition.NewMessages);
+            return messages.SelectMany(se => se.Values.Select(v => new KeyValuePair<string, string>(v.Name, v.Value))).ToArray();
         }
-
-        public async Task<StreamEntry[]> ReadAllMessages(RedisKey stream, RedisValue consumerGroup)
+        public async Task<StreamEntry[]> ReadAllTheMessagesForThisConsumerGroup(RedisKey stream, RedisValue consumerGroup)
         {
             var pendingMessages = await _db.StreamReadGroupAsync(stream, consumerGroup, $"{consumerGroup}:consumer_1", StreamPosition.Beginning);
             var newMessages = await _db.StreamReadGroupAsync(stream, consumerGroup, $"{consumerGroup}:consumer_1", StreamPosition.NewMessages);
@@ -75,7 +107,7 @@ namespace Reporter
         // Example: handler = x => x.Values.First(y => y.Name == "DocID").Value == docId
         public async Task<string> GetPendingMessageId(string stream, string consumerGroup, Func<StreamEntry, bool> handler)
         {
-            var messages = await ReadAllMessages(stream, consumerGroup);
+            var messages = await ReadAllTheMessagesForThisConsumerGroup(stream, consumerGroup);
             var message = messages.FirstOrDefault(handler);
             return message.Id;
         }
