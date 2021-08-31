@@ -17,7 +17,7 @@ namespace DotnetRedisStarter.Tests.Integration
         ///Label - SKU - QTY - PO Number - Total Amount - Submitter - Status
 
         [Fact]
-        public async void AddMultipleKeyValuePairs(){
+        public async void ShouldAppendAMessage(){
             var expected = new Message(){
                 Label ="/namespace/somefilename.xls",
                 SKU = "12343433888",

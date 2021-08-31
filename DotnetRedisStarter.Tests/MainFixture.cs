@@ -26,18 +26,19 @@ namespace DotnetRedisStarter.Tests
                 .AddLogging()
                 .Configure<AppSettings>(configurationBuilder)
                 .AddSingleton(resolver => resolver.GetRequiredService<IOptions<AppSettings>>().Value);
-            
             _provider = _services.BuildServiceProvider();
             AppSettings = _provider.GetService<AppSettings>();
+            if(String.IsNullOrEmpty(AppSettings.ConsumerGroupId)) throw new ArgumentNullException("Consumer Group ID must be set because we want to leverage horizontally scaling this role.");
             var connectionString = $"{AppSettings.RedisHost},password={AppSettings.RedisPassword}";
             var connectionMultiplexer = ConnectionMultiplexer.Connect(connectionString);
-            RedisPersistence = new RedisDecorator(connectionMultiplexer, "0-0", (didSucceed, ex) => {
+
+            RedisPersistence = new RedisDecorator(connectionMultiplexer, "0-0", AppSettings.StreamKey, AppSettings.ConsumerGroup, AppSettings.ConsumerGroupId, (didSucceed, ex) => {
                 Console.WriteLine($"Was it successful {didSucceed} {ex.Message}");
             });
             _services.AddSingleton<RedisDecorator>(RedisPersistence);
 
             try{
-                RedisPersistence.StreamCreateConsumerGroup("test", "test:docs", "0-0");
+                RedisPersistence.StreamCreateConsumerGroup(AppSettings.StreamKey, AppSettings.ConsumerGroup, "0-0");
             }catch(RedisException re) {
                 Console.WriteLine(re.Message);
             }
